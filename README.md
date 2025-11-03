@@ -20,48 +20,63 @@ Hệ thống được thiết kế để chạy phân tán trên 6 máy Ubuntu, 
 - Docker và Docker Compose trên mỗi máy
 - Python 3.9+ (nếu chạy không dùng Docker)
 - Tất cả các máy trong cùng mạng LAN
+- Máy Master IP: **192.168.80.84**
 
-### Bước 1: Clone project
+### 🚀 Quick Start
 
-Trên máy master, clone repository:
+**Xem hướng dẫn chi tiết**: [`STEP_BY_STEP_SETUP.md`](STEP_BY_STEP_SETUP.md)
+
+**Hoặc dùng script tự động:**
 ```bash
-git clone <repository-url>
 cd bigdata
+./QUICK_SETUP.sh <node_number>
 ```
 
-### Bước 2: Cấu hình IP addresses
-
-Copy file `.env.example` thành `.env` và cập nhật IP addresses cho từng node:
+### Bước 1: Setup trên Máy Master
 
 ```bash
-cp .env.example .env
-nano .env
+cd bigdata
+./setup-env.sh  # Tạo file .env với IP master 192.168.80.84
 ```
 
-Cập nhật các IP addresses:
-```env
-# Node 1: Airflow + Redis (Celery)
-NODE1_IP=192.168.1.10
+### Bước 2: Copy code lên các máy worker
 
-# Node 2: Camera Producer + Kafka Broker
-NODE2_IP=192.168.1.11
-
-# Node 3: Spark Streaming Processor
-NODE3_IP=192.168.1.12
-
-# Node 4: Cassandra Database
-NODE4_IP=192.168.1.13
-
-# Node 5: Redis (Realtime Cache)
-NODE5_IP=192.168.1.14
-
-# Node 6: Streamlit Dashboard
-NODE6_IP=192.168.1.15
+```bash
+# Từ máy master, copy lên từng máy worker
+scp -r bigdata/ user@node2-ip:/home/user/
+scp -r bigdata/ user@node3-ip:/home/user/
+# ... lặp lại cho các node khác
 ```
 
-### Bước 3: Copy project lên các máy worker
+### Bước 3: Setup trên từng máy worker
 
-Copy toàn bộ thư mục `bigdata` lên từng máy worker:
+**Trên mỗi máy worker**, tạo file `.env`:
+```bash
+cd ~/bigdata
+
+# Dùng script tự động (khuyến nghị)
+./QUICK_SETUP.sh <node_number>
+
+# Hoặc xem STEP_BY_STEP_SETUP.md để làm thủ công
+```
+
+### Bước 4: Chạy từng node
+
+Xem chi tiết trong [`STEP_BY_STEP_SETUP.md`](STEP_BY_STEP_SETUP.md) hoặc [`QUICKSTART.md`](QUICKSTART.md)
+
+## 📚 Tài Liệu Chi Tiết
+
+- **`STEP_BY_STEP_SETUP.md`** ⭐ - Hướng dẫn setup từng bước trên từng worker (KHÔNG CẦN CHỈNH CODE)
+- **`QUICKSTART.md`** - Quick start guide
+- **`TESTING_GUIDE.md`** - Hướng dẫn test
+- **`DEPLOYMENT.md`** - Hướng dẫn deploy chi tiết
+- **`ARCHITECTURE.md`** - Kiến trúc hệ thống
+
+Xem đầy đủ danh sách: [`INDEX.md`](INDEX.md)
+
+---
+
+## Chi tiết cài đặt (cũ)
 
 ```bash
 # Trên máy master
@@ -240,4 +255,3 @@ MIT
 
 Hệ thống được phát triển cho bài tập Big Data - Distributed System
 
-# BigData-ParkingSystem

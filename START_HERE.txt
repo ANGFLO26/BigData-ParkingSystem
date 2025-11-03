@@ -1,0 +1,42 @@
+╔═══════════════════════════════════════════════════════════════╗
+║     🚀 HƯỚNG DẪN SETUP KHÔNG CẦN CHỈNH CODE                  ║
+╚═══════════════════════════════════════════════════════════════╝
+
+✅ BƯỚC 1: ĐỌC FILE NÀY
+   → STEP_BY_STEP_SETUP.md (file quan trọng nhất!)
+
+✅ BƯỚC 2: Trên máy Master (192.168.80.84)
+   cd ~/Documents/bigdata
+   ./setup-env.sh
+   # Sửa IP các máy worker trong .env nếu cần
+
+✅ BƯỚC 3: Copy code lên các máy worker
+   scp -r bigdata/ user@node2-ip:/home/user/
+   scp -r bigdata/ user@node3-ip:/home/user/
+   # ... lặp lại cho các node
+
+✅ BƯỚC 4: Trên từng máy worker
+   cd ~/bigdata
+   ./QUICK_SETUP.sh <node_number>
+   # Script sẽ hỏi IP và tạo .env tự động
+
+✅ BƯỚC 5: Chạy từng node theo thứ tự
+   1. Node 2 (Kafka) - CHẠY ĐẦU TIÊN
+   2. Node 5 (Redis)
+   3. Node 4 (Cassandra) - Đợi 60s, tạo schema
+   4. Node 3 (Spark)
+   5. Node 6 (Dashboard)
+   6. Node 1 (Airflow)
+
+📖 TÀI LIỆU QUAN TRỌNG:
+   → STEP_BY_STEP_SETUP.md (hướng dẫn chi tiết từng bước)
+   → TESTING_GUIDE.md (hướng dẫn test)
+   → INDEX.md (mục lục tất cả tài liệu)
+
+🎯 KHÔNG CẦN CHỈNH CODE!
+   Chỉ cần:
+   1. Tạo file .env với IP đúng
+   2. Copy code lên các máy
+   3. Chạy từng node
+
+Chúc bạn thành công! 🎉
