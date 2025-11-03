@@ -1,0 +1,293 @@
+# ============================================
+# DOCKER COMPOSE FOR DISTRIBUTED PARKING SYSTEM
+# ============================================
+# This file can be used on any node by setting NODE_TYPE environment variable
+# Example: NODE_TYPE=node1 docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ============================================
+  # NODE 1: Airflow + Redis (Celery Broker)
+  # ============================================
+  redis-celery:
+    image: redis:7-alpine
+    container_name: parking-redis-celery
+    ports:
+      - "${REDIS_CELERY_PORT:-6379}:6379"
+    volumes:
+      - redis-celery-data:/data
+    networks:
+      - parking-network
+    command: redis-server --appendonly yes
+    profiles:
+      - node1
+      - all
+
+  airflow-webserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: parking-airflow-webserver
+    depends_on:
+      - redis-celery
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis-celery:6379/0
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CORE__FERNET_KEY=''
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    ports:
+      - "${AIRFLOW_WEBSERVER_PORT:-8080}:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    networks:
+      - parking-network
+    profiles:
+      - node1
+      - all
+
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: parking-airflow-scheduler
+    depends_on:
+      - postgres
+      - redis-celery
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis-celery:6379/0
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CORE__FERNET_KEY=''
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    networks:
+      - parking-network
+    profiles:
+      - node1
+      - all
+
+  airflow-worker:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: parking-airflow-worker
+    depends_on:
+      - postgres
+      - redis-celery
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis-celery:6379/0
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres:5432/airflow
+      - AIRFLOW__CORE__FERNET_KEY=''
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    networks:
+      - parking-network
+    profiles:
+      - node1
+      - all
+
+  postgres:
+    image: postgres:13
+    container_name: parking-postgres
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - parking-network
+    profiles:
+      - node1
+      - all
+
+  # ============================================
+  # NODE 2: Camera Producer + Kafka Broker
+  # ============================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: parking-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "${KAFKA_ZOOKEEPER_PORT:-2181}:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    networks:
+      - parking-network
+    profiles:
+      - node2
+      - all
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: parking-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "${KAFKA_BROKER_PORT:-9092}:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${NODE2_IP:-localhost}:9092,PLAINTEXT_INTERNAL://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - parking-network
+    profiles:
+      - node2
+      - all
+
+  camera-producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: parking-camera-producer
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-parking-events}
+    networks:
+      - parking-network
+    restart: unless-stopped
+    profiles:
+      - node2
+      - all
+
+  # ============================================
+  # NODE 3: Spark Streaming Processor
+  # ============================================
+  spark-master:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile.master
+    container_name: parking-spark-master
+    ports:
+      - "${SPARK_MASTER_PORT:-7077}:7077"
+      - "${SPARK_UI_PORT:-8080}:8080"
+    environment:
+      - SPARK_MASTER_HOST=spark-master
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-parking-events}
+      - REDIS_CACHE_HOST=${REDIS_CACHE_HOST}
+      - REDIS_CACHE_PORT=${REDIS_CACHE_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-2}
+      - CASSANDRA_HOST=${CASSANDRA_HOST}
+      - CASSANDRA_PORT=${CASSANDRA_PORT:-9042}
+      - PRICE_PER_MINUTE=${PRICE_PER_MINUTE:-10000}
+    volumes:
+      - ./spark:/opt/spark/app
+      - spark-data:/opt/spark/work
+    networks:
+      - parking-network
+    profiles:
+      - node3
+      - all
+
+  # ============================================
+  # NODE 4: Cassandra Database
+  # ============================================
+  cassandra:
+    image: cassandra:4.0
+    container_name: parking-cassandra
+    ports:
+      - "${CASSANDRA_PORT:-9042}:9042"
+      - "${CASSANDRA_CQL_PORT:-7000}:7000"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ParkingCluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - CASSANDRA_LISTEN_ADDRESS=0.0.0.0
+      - CASSANDRA_BROADCAST_ADDRESS=0.0.0.0
+      - CASSANDRA_RPC_ADDRESS=0.0.0.0
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+      - ./cassandra/init:/docker-entrypoint-initdb.d
+    networks:
+      - parking-network
+    profiles:
+      - node4
+      - all
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep -E '^UN'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============================================
+  # NODE 5: Redis (Realtime Cache)
+  # ============================================
+  redis-cache:
+    image: redis:7-alpine
+    container_name: parking-redis-cache
+    ports:
+      - "${REDIS_CACHE_PORT:-6379}:6379"
+    volumes:
+      - redis-cache-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - parking-network
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+    profiles:
+      - node5
+      - all
+
+  # ============================================
+  # NODE 6: Streamlit Dashboard
+  # ============================================
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: parking-dashboard
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    environment:
+      - REDIS_CACHE_HOST=${REDIS_CACHE_HOST}
+      - REDIS_CACHE_PORT=${REDIS_CACHE_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-2}
+      - CASSANDRA_HOST=${CASSANDRA_HOST}
+      - CASSANDRA_PORT=${CASSANDRA_PORT:-9042}
+    volumes:
+      - ./dashboard:/app
+    networks:
+      - parking-network
+    restart: unless-stopped
+    profiles:
+      - node6
+      - all
+
+networks:
+  parking-network:
+    driver: bridge
+
+volumes:
+  redis-celery-data:
+  redis-cache-data:
+  postgres-data:
+  zookeeper-data:
+  kafka-data:
+  cassandra-data:
+  spark-data:
+

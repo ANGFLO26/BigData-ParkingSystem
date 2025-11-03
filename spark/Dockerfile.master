@@ -1,0 +1,30 @@
+FROM bitnami/spark:3.5
+
+USER root
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages
+RUN pip3 install --no-cache-dir \
+    redis==5.0.1 \
+    cassandra-driver==3.29.0
+
+# Install Kafka connector for Spark
+RUN mkdir -p /opt/spark/jars && \
+    cd /opt/spark/jars && \
+    wget -q https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.12/3.5.0/spark-sql-kafka-0-10_2.12-3.5.0.jar && \
+    wget -q https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.6.0/kafka-clients-3.6.0.jar || true
+
+# Set working directory
+WORKDIR /opt/spark
+
+# Expose ports
+EXPOSE 7077 8080 4040
+
+# Start Spark Master in background and run streaming job
+# Note: Spark Master is not needed for standalone streaming, but kept for compatibility
+CMD bash -c "sleep 5 && cd /opt/spark/app && python3 spark_streaming.py"
